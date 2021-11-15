@@ -1,0 +1,24 @@
+# C compiler and flags
+CC=mpicc
+
+# Optimization flags
+OPTFLAGS=-O3 -march=native -ffast-math -g
+CFLAGS+=$(OPTFLAGS)
+CXXFLAGS+=$(OPTFLAGS)
+
+# Python
+#PYTHON=python
+PYTHON=/share/apps/anaconda3/5.2.0/bin/python
+
+# Other necessary libraries
+#LIBS=-ltcmalloc -lm -Wl,--no-as-needed -lprofiler -Wl,--as-needed #`pkg-config libtcmalloc`
+LIBS=-ltcmalloc -lm -lprofiler
+
+
+LIBBLAS=-llapacke -llapack -lblas
+
+# LIBBLAS=`pkg-config -- libs lapacke` `pkg-config --libs openblas blas` 
+# INCBLAS=`pkg-config --cflags lapacke` `pkg-config --cflags openblas` 
+
+LIBLAPACK=`pkg-config --libs lapacke`
+INCLAPACK=`pkg-config --cflags lapacke`
