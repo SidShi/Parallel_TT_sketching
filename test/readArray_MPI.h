@@ -3,7 +3,7 @@
 
 #include <mpi.h>
 #include <gperftools/heap-profiler.h>
-#include "tt.h"
+#include "../include/paralleltt.h"
 
 // Gets a tensor created from a tensor train with i.i.d. Gaussian entries
 //MPI_tensor* get_gaussian(const int d, const int* n, const int* r);

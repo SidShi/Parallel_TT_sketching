@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <gperftools/heap-profiler.h>
 
-#include "VTime.h"
+#include "../include/paralleltt.h"
 
 #define STRMAX 100
 

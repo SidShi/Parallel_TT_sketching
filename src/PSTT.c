@@ -4,12 +4,7 @@
 #include <stdio.h>
 #include <gperftools/heap-profiler.h>
 
-#include "PSTT.h"
-#include "sketch.h"
-#include "tensor.h"
-#include "tt.h"
-#include "matrix.h"
-#include "VTime.h"
+#include "../include/paralleltt.h"
 
 #include <unistd.h>
 

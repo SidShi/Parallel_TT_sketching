@@ -1,7 +1,4 @@
-#include "matrix.h"
-#include "tensor.h"
-#include "sketch.h"
-#include "VTime.h"
+#include "../include/paralleltt.h"
 
 #include <stdio.h>
 #include <stdlib.h>

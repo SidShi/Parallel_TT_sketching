@@ -1,9 +1,5 @@
 #include "readArray_MPI.h"
-#include "tensor.h"
-#include "matrix.h"
-#include "tt.h"
-#include "sketch.h"
-//#include "tt.h"
+#include "../include/paralleltt.h"
 
 #include <mpi.h>
 #include <stdio.h>

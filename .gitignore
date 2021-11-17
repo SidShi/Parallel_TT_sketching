@@ -1,6 +1,7 @@
 # Ignore object and archive files
-[*].o
-[*].a
+/src/*.o
+/test/*.o
+/lib/*.a
 
 # Ignore test script
-./test/example
+test/example

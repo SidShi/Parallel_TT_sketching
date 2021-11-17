@@ -1,5 +1,4 @@
-#include "tensor.h"
-#include "matrix.h"
+#include "../include/paralleltt.h"
 
 #include <math.h>
 #include <stdio.h>

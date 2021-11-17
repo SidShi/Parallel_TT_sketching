@@ -1,9 +1,4 @@
-#include "SSTT.h"
-#include "matrix.h"
-#include "tensor.h"
-#include "tt.h"
-#include "sketch.h"
-#include "VTime.h"
+#include "../include/paralleltt.h"
 
 #include <stdlib.h>
 #include <lapacke.h>

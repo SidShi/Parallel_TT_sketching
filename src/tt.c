@@ -1,6 +1,4 @@
-#include "tt.h"
-#include "matrix.h"
-#include "tensor.h"
+#include "../include/paralleltt.h"
 
 #include <stdlib.h>
 #include <string.h>
