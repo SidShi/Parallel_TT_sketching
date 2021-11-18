@@ -4,7 +4,7 @@
  */
 
 // Implementation of a matrix datatype and the associated routines
-#include "./matrix.h"
+#include "./matrix_tt.h"
 
 // The tensor datatype and associated functiosn
 #include "./tensor.h"

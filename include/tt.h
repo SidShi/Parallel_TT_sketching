@@ -1,9 +1,12 @@
+/* tt.h:
+ /   This file contains everything related to the tensor_train struct
+*/
+
 #ifndef TENSOR_TRAIN_H
 #define TENSOR_TRAIN_H
 
 #include <lapacke.h>
 #include <mpi.h>
-#include <gperftools/heap-profiler.h>
 #include "tensor.h"
 
 typedef struct tensor_train {
@@ -17,16 +20,13 @@ typedef struct tensor_train {
 tensor_train* TT_init(const int d, const int* restrict n);
 tensor_train* TT_init_rank(const int d, const int* restrict n, const int* restrict r);
 tensor_train* TT_copy(tensor_train* X);
-
 void TT_free(tensor_train* sim);
-
 void TT_print(tensor_train* tt);
 
-//void TT_to_tensor(const tensor_train* tt, MPI_tensor* ten, long N1, long N2);
-
+// Broadcast a tensor train to all nodes
 void tt_broadcast(MPI_Comm comm, tensor_train* tt);
 
-
+// Find how much the tensor_train has compressed the tensor
 double get_compression(const tensor_train* tt);
 
 #endif

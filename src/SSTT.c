@@ -5,7 +5,6 @@
 #include <mpi.h>
 #include <stdio.h>
 #include <string.h>
-#include <gperftools/heap-profiler.h>
 
 void SSTT_sketch_to_train(sketch* s, tensor_train* tt, int train_ind)
 {
@@ -23,16 +22,16 @@ void SSTT_sketch_to_train(sketch* s, tensor_train* tt, int train_ind)
     int r1 = tt->r[train_ind];
     int r2 = tt->r[train_ind + 1];
     double* train = tt->trains[train_ind];
-    matrix* train_mat = matrix_wrap(r1 * n, r2, train);
-    matrix_fill_zeros(train_mat);
+    matrix_tt* train_mat = matrix_tt_wrap(r1 * n, r2, train);
+    matrix_tt_fill_zeros(train_mat);
 
     int* op = s->owner_partition;
     int rank = ten->rank;
 
-    matrix* train_submat = submatrix(train_mat, 0, 0, 0, 0);
+    matrix_tt* train_submat = submatrix(train_mat, 0, 0, 0, 0);
     for (int ii = op[rank]; ii < op[rank+1]; ++ii){
-        matrix* X_submat = own_submatrix(s, ii, 0);
-        matrix* X_subsubmat = submatrix(X_submat, 0, 0, 0, 0);
+        matrix_tt* X_submat = own_submatrix(s, ii, 0);
+        matrix_tt* X_subsubmat = submatrix(X_submat, 0, 0, 0, 0);
 
         flattening_info_f_update(fi, ten, ii);
 
@@ -48,7 +47,7 @@ void SSTT_sketch_to_train(sketch* s, tensor_train* tt, int train_ind)
         for (int jj = 0; jj < jj_max; ++jj){
             submatrix_update(train_submat, i0_train + jj*r1, i0_train + sz + jj*r1, 0, r2);
             submatrix_update(X_subsubmat, jj*sz, (jj+1)*sz, 0, r2);
-            matrix_copy_data(train_submat, X_subsubmat);
+            matrix_tt_copy_data(train_submat, X_subsubmat);
         }
 
         free(X_submat);     X_submat = NULL;
@@ -56,8 +55,8 @@ void SSTT_sketch_to_train(sketch* s, tensor_train* tt, int train_ind)
     }
     free(train_submat); train_submat = NULL;
 
-    matrix_reshape(r1*n*r2, 1, train_mat); // Reshape so MPI_Allreduce is only called once
-    matrix_allreduce(comm, train_mat);
+    matrix_tt_reshape(r1*n*r2, 1, train_mat); // Reshape so MPI_Allreduce is only called once
+    matrix_tt_allreduce(comm, train_mat);
 
 
     flattening_info_free(fi);
@@ -191,7 +190,7 @@ MPI_tensor* SSTT_next_ten(MPI_tensor* prev_ten, tensor_train* tt, int train_ind)
     int r1 = tt->r[train_ind];
     int r2 = tt->r[train_ind + 1];
     double* train = tt->trains[train_ind];
-    matrix* train_mat = matrix_wrap(r1 * n0, r2, train);
+    matrix_tt* train_mat = matrix_tt_wrap(r1 * n0, r2, train);
 
     // Allocate memory for next_ten
     MPI_tensor* next_ten = SSTT_next_ten_init(prev_ten, tt, train_ind);
@@ -228,9 +227,9 @@ MPI_tensor* SSTT_next_ten(MPI_tensor* prev_ten, tensor_train* tt, int train_ind)
     MPI_Group world_group;
     MPI_Comm_group(next_ten->comm, &world_group);
 
-    matrix* prev_mat = (matrix*) calloc(1, sizeof(matrix));
-    matrix* next_mat = (matrix*) calloc(1, sizeof(matrix));
-    matrix* share_mat = (matrix*) calloc(1, sizeof(matrix));
+    matrix_tt* prev_mat = (matrix_tt*) calloc(1, sizeof(matrix_tt));
+    matrix_tt* next_mat = (matrix_tt*) calloc(1, sizeof(matrix_tt));
+    matrix_tt* share_mat = (matrix_tt*) calloc(1, sizeof(matrix_tt));
 
     long buf_size = 1;
     for (int ii = 0; ii < next_ten->d; ++ii){
@@ -242,7 +241,7 @@ MPI_tensor* SSTT_next_ten(MPI_tensor* prev_ten, tensor_train* tt, int train_ind)
         }
         buf_size *= sz_ii;
     }
-    matrix* buf = matrix_init(buf_size, 1);
+    matrix_tt* buf = matrix_tt_init(buf_size, 1);
 
     for (int ii = 0; ii < prev_ten->n_schedule; ++ii){
         // Some initialization - figuring out who owns and needs what
@@ -267,7 +266,7 @@ MPI_tensor* SSTT_next_ten(MPI_tensor* prev_ten, tensor_train* tt, int train_ind)
             // Get prev_mat
             stream(prev_ten, prev_block_rank);
             flattening_info_update(prev_fi, prev_ten, prev_block_rank);
-            matrix_wrap_update(prev_mat, prev_fi->f_N, prev_fi->s_N, get_X(prev_ten));
+            matrix_tt_wrap_update(prev_mat, prev_fi->f_N, prev_fi->s_N, get_X(prev_ten));
 
             // Get next_mat
             int next_t_v_block = next_t_v_blocks[rank];
@@ -282,11 +281,11 @@ MPI_tensor* SSTT_next_ten(MPI_tensor* prev_ten, tensor_train* tt, int train_ind)
             if (next_owner == rank){
                 beta = 1.0;
                 stream(next_ten, next_schedule_rank[next_epoch]);
-                matrix_wrap_update(next_mat, next_fi->f_N, next_fi->s_N, get_X(next_ten));
+                matrix_tt_wrap_update(next_mat, next_fi->f_N, next_fi->s_N, get_X(next_ten));
             }
             else{
                 beta = 0.0;
-                matrix_wrap_update(next_mat, next_fi->f_N, next_fi->s_N, scratch);
+                matrix_tt_wrap_update(next_mat, next_fi->f_N, next_fi->s_N, scratch);
             }
 
             // Get train submat
@@ -296,7 +295,7 @@ MPI_tensor* SSTT_next_ten(MPI_tensor* prev_ten, tensor_train* tt, int train_ind)
             train_mat->transpose = 1;
 
             // Multiply
-            matrix_dgemm(train_mat, prev_mat, next_mat, 1.0, beta);
+            matrix_tt_dgemm(train_mat, prev_mat, next_mat, 1.0, beta);
         }
 
 
@@ -335,20 +334,20 @@ MPI_tensor* SSTT_next_ten(MPI_tensor* prev_ten, tensor_train* tt, int train_ind)
                     }
                 }
 
-                matrix* reduce_mat = NULL;
+                matrix_tt* reduce_mat = NULL;
                 if (owner_jj == rank){
                     flattening_info_update(next_fi_tmp, next_ten, t_v_block_jj);
                     stream(next_ten, t_v_block_jj);
-                    matrix_wrap_update(share_mat, next_fi_tmp->t_N, 1, get_X(next_ten));
+                    matrix_tt_wrap_update(share_mat, next_fi_tmp->t_N, 1, get_X(next_ten));
                     reduce_mat = share_mat;
                 }
                 else{
-                    matrix_reshape(next_mat->n * next_mat->m, 1, next_mat);
+                    matrix_tt_reshape(next_mat->n * next_mat->m, 1, next_mat);
                     reduce_mat = next_mat;
                 }
 
-                matrix_reshape(reduce_mat->n, reduce_mat->m, buf);
-                matrix_group_reduce(next_ten->comm, rank, reduce_mat, buf, owner_jj, group_ranks, group_size);
+                matrix_tt_reshape(reduce_mat->m, reduce_mat->n, buf);
+                matrix_tt_group_reduce(next_ten->comm, rank, reduce_mat, buf, owner_jj, group_ranks, group_size);
             }
         }
 
@@ -359,7 +358,7 @@ MPI_tensor* SSTT_next_ten(MPI_tensor* prev_ten, tensor_train* tt, int train_ind)
     free(prev_mat);
     free(next_mat);
     free(share_mat);
-    matrix_free(buf);
+    matrix_tt_free(buf);
 
 
     free(train_mat);
@@ -378,7 +377,7 @@ void SSTT_copy_final_train(MPI_tensor* ten, tensor_train* tt)
 {
     int r1 = tt->r[tt->d - 1];
     int n  = tt->n[tt->d - 1];
-    matrix* train_mat = matrix_wrap(r1, n, tt->trains[tt->d - 1]);
+    matrix_tt* train_mat = matrix_tt_wrap(r1, n, tt->trains[tt->d - 1]);
 
     int rank = ten->rank;
     MPI_Comm comm = ten->comm;
@@ -396,21 +395,21 @@ void SSTT_copy_final_train(MPI_tensor* ten, tensor_train* tt)
         MPI_tensor_get_owner(ten, ii, &rank_ii, &epoch_ii);
 
         flattening_info_update(fi, ten, ii);
-        matrix* train_submat = submatrix(train_mat, 0, r1, fi->f_t_index[0], fi->f_t_index[0] + fi->f_N);
+        matrix_tt* train_submat = submatrix(train_mat, 0, r1, fi->f_t_index[0], fi->f_t_index[0] + fi->f_N);
 
         if (rank_ii == rank){
             stream(ten, ii);
-            matrix* ten_mat = matrix_wrap(train_submat->m, train_submat->n, get_X(ten));
+            matrix_tt* ten_mat = matrix_tt_wrap(train_submat->m, train_submat->n, get_X(ten));
             if (rank == head){
-                matrix_copy_data(train_submat, ten_mat);
+                matrix_tt_copy_data(train_submat, ten_mat);
             }
             else{
-                matrix_send(comm, ten_mat, head);
+                matrix_tt_send(comm, ten_mat, head);
             }
             free(ten_mat);
         }
         else if (rank == head){
-            matrix_recv(comm, train_submat, rank_ii);
+            matrix_tt_recv(comm, train_submat, rank_ii);
         }
 
         free(train_submat);
@@ -423,56 +422,28 @@ void SSTT_copy_final_train(MPI_tensor* ten, tensor_train* tt)
 
 
 // This frees ten. So just be careful
-VTime* SSTT(tensor_train* tt, MPI_tensor* ten){
+void SSTT(tensor_train* tt, MPI_tensor* ten){
     int d = ten->d;
     int buf = 2;
     int iscol = 1;
-    VTime* tm = VTime_init(1 + 4*(d-1));
-
-    char** labels = (char**) malloc(4*sizeof(char*));
-    for (int ii = 0; ii < 4; ++ii){
-        labels[ii] = (char*) malloc(100*sizeof(char));
-    }
-    strcpy(labels[0], "ii%d perform_sketch");
-    strcpy(labels[1], "ii%d sketch_qr");
-    strcpy(labels[2], "ii%d SSTT_sketch_to_train");
-    strcpy(labels[3], "ii%d SSTT_next_ten");
 
     for (int ii = 0; ii < d-1; ++ii){
-        tm->offset = 1 + ii * 4;
-        VTime_break(tm, -1, NULL);
         int flattening = (ii == 0) ? 1 : 2;
         sketch* s = sketch_init(ten, flattening, tt->r[ii+1], buf, iscol); // Initialize sketch
-//        tm->offset = 1; // This will have to change at some point
-        perform_sketch(s, NULL); // Sketch
-        VTime_break(tm, 0, NULL);
+
+        perform_sketch(s); // Sketch
 
         sketch_qr(s); // QR
-        VTime_break(tm, 1, NULL);
 
         SSTT_sketch_to_train(s, tt, ii); // Get the train
-        VTime_break(tm, 2, NULL);
 
         MPI_tensor* prev_ten = ten;
         ten = SSTT_next_ten(prev_ten, tt, ii); // Perform train^T * ten
-        VTime_break(tm, 3, NULL);
 
         sketch_free(s);
         MPI_tensor_free(prev_ten); prev_ten = NULL;
-
-        for (int jj = 0; jj < 4; ++jj){
-            sprintf(tm->labels[jj + tm->offset], labels[jj], ii);
-        }
     }
     SSTT_copy_final_train(ten, tt); // copy ten into trains[d-1]
 
     MPI_tensor_free(ten);
-
-    for (int ii = 0; ii < 4; ++ii){
-        free(labels[ii]); labels[ii] = NULL;
-    }
-    free(labels); labels = NULL;
-
-    VTime_finalize(tm);
-    return tm;
 }

@@ -1,7 +1,7 @@
 include ../Makefile.inc
 
 LIB=../lib/libparalleltt.a
-OBJ=matrix.o tensor.o tt.o sketch.o PSTT.o SSTT.o VTime.o
+OBJ=matrix_tt.o tensor.o tt.o sketch.o PSTT.o SSTT.o
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<

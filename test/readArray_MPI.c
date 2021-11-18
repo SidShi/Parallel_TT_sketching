@@ -7,8 +7,6 @@
 #include <lapacke.h>
 #include <time.h>
 #include <math.h>
-#include <gperftools/heap-profiler.h>
-// #include <string.h>
 
 void* p_hilbert_init(int d, int* n){
     p_hilbert* parameters = (p_hilbert*) malloc(sizeof(p_hilbert));
@@ -255,29 +253,22 @@ void f_tt(double* restrict X, int* ind1, int* ind2, const void* parameters)
     int* n = tt->n;
     int* r = tt->r;
 
-//    matrix** train_mats = (matrix**) calloc(d, sizeof(matrix*));
-    matrix** train_submats = (matrix**) calloc(d, sizeof(matrix*));
+    matrix_tt** train_submats = (matrix_tt**) calloc(d, sizeof(matrix_tt*));
     for (int ii = 0; ii < d; ++ii){
-        matrix* train_mat_ii = matrix_wrap(r[ii]*n[ii], r[ii+1], tt->trains[ii]);
+        matrix_tt* train_mat_ii = matrix_tt_wrap(r[ii]*n[ii], r[ii+1], tt->trains[ii]);
         train_submats[ii] = submatrix(train_mat_ii, ind1[ii]*r[ii], ind2[ii]*r[ii], 0, r[ii+1]);
         free(train_mat_ii);
     }
 
-    matrix* mult = submatrix_copy(train_submats[d-1]);
-//    printf("train_submats[d-1] = (%d x %d)", train_submats[d-1]->m, train_submats[d-1]->n);
-//    printf(", reshaping to (%d x %d)\n", r[d-1], ind2[d-1] - ind1[d-1]);
-    matrix_reshape(r[d-1], ind2[d-1] - ind1[d-1], mult);
+    matrix_tt* mult = submatrix_copy(train_submats[d-1]);
+    matrix_tt_reshape(r[d-1], ind2[d-1] - ind1[d-1], mult);
 
 
-//    matrix_print(mult, 0);
     for (int jj = d-2; jj >= 1; --jj){
-//        printf("train_submats[jj]->m = %d, mult->n = %d\n",train_submats[jj]->m, mult->n);
-        matrix* new_mult = matrix_init(train_submats[jj]->m, mult->n);
-        matrix_dgemm(train_submats[jj], mult, new_mult, 1.0, 0.0);
-        matrix_reshape(r[jj], (new_mult->n) * (new_mult->m) / r[jj], new_mult);
-        matrix_free(mult); mult = new_mult;
-
-//        matrix_print(mult, 0);
+        matrix_tt* new_mult = matrix_tt_init(train_submats[jj]->m, mult->n);
+        matrix_tt_dgemm(train_submats[jj], mult, new_mult, 1.0, 0.0);
+        matrix_tt_reshape(r[jj], (new_mult->n) * (new_mult->m) / r[jj], new_mult);
+        matrix_tt_free(mult); mult = new_mult;
     }
 
     long X_m = 1;
@@ -285,15 +276,15 @@ void f_tt(double* restrict X, int* ind1, int* ind2, const void* parameters)
         X_m = X_m*(ind2[ii] - ind1[ii]);
     }
 
-    matrix* X_mat = matrix_wrap(ind2[0] - ind1[0], X_m, X);
-    matrix_dgemm(train_submats[0], mult, X_mat, 1.0, 0.0);
+    matrix_tt* X_mat = matrix_tt_wrap(ind2[0] - ind1[0], X_m, X);
+    matrix_tt_dgemm(train_submats[0], mult, X_mat, 1.0, 0.0);
 
     for (int ii = 0; ii < d; ++ii){
         free(train_submats[ii]); train_submats[ii] = NULL;
     }
 
     free(train_submats); train_submats = NULL;
-    matrix_free(mult);   mult = NULL;
+    matrix_tt_free(mult);   mult = NULL;
     free(X_mat);         X_mat = NULL;
 }
 
@@ -327,11 +318,11 @@ double tt_error(tensor_train* tt, MPI_tensor* ten)
                 ten_tt->X[jj] = ten_tt->X[jj] - ten->X[jj];
             }
 
-            matrix* mat_true = matrix_wrap(N, 1, ten->X);
+            matrix_tt* mat_true = matrix_tt_wrap(N, 1, ten->X);
             double tmp = frobenius_norm(mat_true);
             true_norm_squared = true_norm_squared + tmp*tmp;
 
-            matrix* mat_diff = matrix_wrap(N, 1, ten_tt->X);
+            matrix_tt* mat_diff = matrix_tt_wrap(N, 1, ten_tt->X);
             tmp = frobenius_norm(mat_diff);
             diff_norm_squared = diff_norm_squared + tmp*tmp;
 //            printf("r%d ii%d true_norm_squared = %e, diff_norm_squared = %e\n", rank, ii, true_norm_squared, diff_norm_squared);

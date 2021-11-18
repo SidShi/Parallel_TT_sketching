@@ -2,7 +2,6 @@
 #include <lapacke.h>
 #include <mpi.h>
 #include <stdio.h>
-#include <gperftools/heap-profiler.h>
 
 #include "../include/paralleltt.h"
 
@@ -42,29 +41,29 @@ void two_sketches_to_train(sketch* s1, sketch* s2, double** train_ptr)
         int n = ten->n[(iscol) ? 0 : d-1];
         int r = s->r;
 
-        matrix* train_mat = (iscol) ? matrix_wrap(n, r, train) : matrix_wrap(r, n, train);
-        matrix_fill_zeros(train_mat);
+        matrix_tt* train_mat = (iscol) ? matrix_tt_wrap(n, r, train) : matrix_tt_wrap(r, n, train);
+        matrix_tt_fill_zeros(train_mat);
 
         int* op = s->owner_partition;
         int rank = ten->rank;
 
         for (int ii = op[rank]; ii < op[rank+1]; ++ii){
             // X submatrix
-            matrix* X_submat = own_submatrix(s, ii, 0);
+            matrix_tt* X_submat = own_submatrix(s, ii, 0);
 
             // train submatrix
             flattening_info_f_update(fi, ten, ii);
             int i0 = fi->f_t_index[0];
             int i1 = i0 + fi->f_t_sizes[0];
 
-            matrix* train_submat = (iscol) ? submatrix(train_mat, i0, i1, 0, r) : submatrix(train_mat, 0, r, i0, i1);
+            matrix_tt* train_submat = (iscol) ? submatrix(train_mat, i0, i1, 0, r) : submatrix(train_mat, 0, r, i0, i1);
             train_submat->transpose = (iscol) ? 0 : 1;
-            matrix_copy_data(train_submat, X_submat);
+            matrix_tt_copy_data(train_submat, X_submat);
 
             free(train_submat);
             free(X_submat);
         }
-        matrix_reduce(comm, rank, train_mat, NULL, head);
+        matrix_tt_reduce(comm, rank, train_mat, NULL, head);
 
 
         flattening_info_free(fi);
@@ -111,12 +110,12 @@ void two_sketches_to_train(sketch* s1, sketch* s2, double** train_ptr)
     int r2 = s2->r;
     int n_index = (iscol) ? flattening1 : flattening2;
     int n = ten->n[n_index];
-    matrix* train_mat = matrix_wrap(r1, n*r2, train);
-    matrix_fill_zeros(train_mat);
+    matrix_tt* train_mat = matrix_tt_wrap(r1, n*r2, train);
+    matrix_tt_fill_zeros(train_mat);
 
 
     // Loop over all blocks of fi2
-    matrix* s_mat1 = (matrix*) calloc(1, sizeof(matrix));
+    matrix_tt* s_mat1 = (matrix_tt*) calloc(1, sizeof(matrix_tt));
     for (int block2 = 0; block2 < fi2->f_Nblocks; ++block2){
         flattening_info_f_update(fi2, ten, block2);
         int owner2 = s_get_owner(s2, block2);
@@ -137,11 +136,11 @@ void two_sketches_to_train(sketch* s1, sketch* s2, double** train_ptr)
         if (rank == owner2){
 
             // Get submatrix of s2
-            matrix* s_mat2 = own_submatrix(s2, block2 , 0);
+            matrix_tt* s_mat2 = own_submatrix(s2, block2 , 0);
 
             // Multiply
-            matrix* train_submat = submatrix(train_mat, 0, 0, 0, 0);
-            matrix* s_submat2 = submatrix(s_mat2, 0, 0, 0, 0);
+            matrix_tt* train_submat = submatrix(train_mat, 0, 0, 0, 0);
+            matrix_tt* s_submat2 = submatrix(s_mat2, 0, 0, 0, 0);
             s_submat2->transpose = (iscol) ? 0 : 1;
             for (int kk = 0; kk < r2; ++kk){
                 int jj0 = (fi2->f_t_index[(iscol) ? (fi2->f_d) - 1 : 0]) + kk * n;
@@ -161,7 +160,7 @@ void two_sketches_to_train(sketch* s1, sketch* s2, double** train_ptr)
                 }
 
                 s_mat1->transpose = 1;
-                matrix_dgemm(s_mat1, s_submat2, train_submat, 1.0, 1.0);
+                matrix_tt_dgemm(s_mat1, s_submat2, train_submat, 1.0, 1.0);
             }
             free(train_submat);
             free(s_mat2);
@@ -170,20 +169,19 @@ void two_sketches_to_train(sketch* s1, sketch* s2, double** train_ptr)
     }
     free(s_mat1);
 
-    matrix_reduce(comm, rank, train_mat, NULL, head);
+    matrix_tt_reduce(comm, rank, train_mat, NULL, head);
 
     // If it was a row sketch, we need to transpose
     if ((!iscol) && (rank == head)){
         double* train_cp = train_transpose(train, r1, n, r2);
         *train_ptr = train_cp;
 
-        matrix_free(train_mat); train_mat = NULL;
+        matrix_tt_free(train_mat); train_mat = NULL;
     }
     else{
         free(train_mat); train_mat = NULL;
     }
 
-//    free(obtained_blocks);
     flattening_info_free(fi1);
     flattening_info_free(fi2);
 }
@@ -214,8 +212,8 @@ void PSTT2_final_train(tensor_train* tt, sketch** sketches, int mid)
     flattening_info* fi1 = flattening_info_init(ten, s1->flattening, s1->iscol, 0);
     flattening_info* fi2 = flattening_info_init(ten, s2->flattening, s2->iscol, 0);
 
-    matrix* train_mat = matrix_wrap(r1*n, r2, tt->trains[mid]);
-    matrix_fill_zeros(train_mat);
+    matrix_tt* train_mat = matrix_tt_wrap(r1*n, r2, tt->trains[mid]);
+    matrix_tt_fill_zeros(train_mat);
 
 
 
@@ -225,13 +223,13 @@ void PSTT2_final_train(tensor_train* tt, sketch** sketches, int mid)
         int candidate = mid_partition[ii+1] - mid_partition[ii];
         tmp_n = (candidate > tmp_n) ? candidate : tmp_n;
     }
-    matrix* tmp = matrix_init(r1, tmp_n);
+    matrix_tt* tmp = matrix_tt_init(r1, tmp_n);
 
-    matrix* recv_mat = (matrix*) calloc(1, sizeof(matrix));
-    matrix* s_mat1 = (matrix*) calloc(1, sizeof(matrix));
-    matrix* s_mat2 = (matrix*) calloc(1, sizeof(matrix));
-    matrix* s_submat2 = (matrix*) calloc(1, sizeof(matrix));
-    matrix* subtensor_mat = (matrix*) calloc(1, sizeof(matrix));
+    matrix_tt* recv_mat = (matrix_tt*) calloc(1, sizeof(matrix_tt));
+    matrix_tt* s_mat1 = (matrix_tt*) calloc(1, sizeof(matrix_tt));
+    matrix_tt* s_mat2 = (matrix_tt*) calloc(1, sizeof(matrix_tt));
+    matrix_tt* s_submat2 = (matrix_tt*) calloc(1, sizeof(matrix_tt));
+    matrix_tt* subtensor_mat = (matrix_tt*) calloc(1, sizeof(matrix_tt));
     // Loop over schedule and stream
     for (int ii = 0; ii < ten->n_schedule; ++ii){
         int block = schedule_rank[ii];
@@ -248,7 +246,7 @@ void PSTT2_final_train(tensor_train* tt, sketch** sketches, int mid)
                 flattening_info_update(fi1, ten, block_jj);
                 sendrecv_sketch_block(recv_mat, s1, fi1, jj, 0);
                 if (recv_mat->X != NULL){
-                    matrix* swtch = recv_mat;
+                    matrix_tt* swtch = recv_mat;
                     recv_mat = s_mat1;
                     s_mat1 = swtch;
                 }
@@ -257,7 +255,7 @@ void PSTT2_final_train(tensor_train* tt, sketch** sketches, int mid)
                 flattening_info_update(fi2, ten, block_jj);
                 sendrecv_sketch_block(recv_mat, s2, fi2, jj, 0);
                 if (recv_mat->X != NULL){
-                    matrix* swtch = recv_mat;
+                    matrix_tt* swtch = recv_mat;
                     recv_mat = s_mat2;
                     s_mat2 = swtch;
                 }
@@ -272,13 +270,12 @@ void PSTT2_final_train(tensor_train* tt, sketch** sketches, int mid)
         if (block != -1){
             int jj0 = fi1->t_t_index[mid];
             int sz = fi1->t_t_sizes[mid];
-//            matrix* tmp = matrix_init(r1, sz);
             submatrix_update(tmp, 0, r1, 0, sz);
-            matrix_wrap_update(subtensor_mat, fi1->f_N, fi1->s_N, get_X(ten));
+            matrix_tt_wrap_update(subtensor_mat, fi1->f_N, fi1->s_N, get_X(ten));
             s_mat1->transpose = 1;
             submatrix_update(train_mat, jj0*r1, (jj0 + sz)*r1, 0, r2);
             submatrix_update(subtensor_mat, 0, 0, 0, 0);
-            // Ugh I guess this is what we are doing
+
             s_submat2->transpose = s_mat2->transpose;
             s_submat2->offset = 0;
             s_submat2->lda = s_mat2->lda;
@@ -287,21 +284,16 @@ void PSTT2_final_train(tensor_train* tt, sketch** sketches, int mid)
 
 
             for (int jj = 0; jj < fi2->f_N; ++jj){
-                matrix_reshape(r1, sz, tmp);
-//                matrix* subtensor_mat = submatrix(subtensor_mat, 0, fi1->f_N, jj*sz, (jj+1)*sz);
+                matrix_tt_reshape(r1, sz, tmp);
                 submatrix_update(subtensor_mat, 0, fi1->f_N, jj*sz, (jj+1)*sz);
 
-                matrix_dgemm(s_mat1, subtensor_mat, tmp, 1.0, 0.0);
-                matrix_reshape(r1*sz, 1, tmp);
+                matrix_tt_dgemm(s_mat1, subtensor_mat, tmp, 1.0, 0.0);
+                matrix_tt_reshape(r1*sz, 1, tmp);
 
 
-//                matrix* s_submat2 = submatrix(s_mat2, jj, jj+1, 0, r2);
                 submatrix_update(s_submat2, jj, jj+1, 0, r2);
-                matrix_dgemm(tmp, s_submat2, train_mat, 1.0, 1.0);
+                matrix_tt_dgemm(tmp, s_submat2, train_mat, 1.0, 1.0);
             }
-//            free(s_submat2);
-
-//            free(train_submat);
         }
 
     }
@@ -315,8 +307,8 @@ void PSTT2_final_train(tensor_train* tt, sketch** sketches, int mid)
     flattening_info_free(fi2);
 
     submatrix_update(train_mat, 0, n*r1, 0, r2);
-    matrix_reduce(comm, rank, train_mat, NULL, head);
-    matrix_free(tmp);
+    matrix_tt_reduce(comm, rank, train_mat, NULL, head);
+    matrix_tt_free(tmp);
 
     free(train_mat);
 }
@@ -354,11 +346,8 @@ int PSTT2_get_mid(MPI_tensor* ten, int mid)
 }
 
 
-VTime* PSTT2(tensor_train* tt, MPI_tensor* ten, int mid)
+void PSTT2(tensor_train* tt, MPI_tensor* ten, int mid)
 {
-    // VTime: Number of times in PSTT2: 5
-    // VTime: Number of times in multi_perform_sketch: 3
-    VTime* tm = VTime_init(1 + 5 + 3);
     mid = PSTT2_get_mid(ten, mid);
     int rank = ten->rank;
     int BUF = 2;
@@ -372,19 +361,14 @@ VTime* PSTT2(tensor_train* tt, MPI_tensor* ten, int mid)
         int iscol = (ii < mid) ? 1 : 0; // Column sketch below mid, row sketch above it
         sketches[ii] = sketch_init(ten, ii+1, r[ii+1], BUF, iscol);
     }
-    VTime_break(tm, 0, "Initialized Sketches");
 
     // Sketch the tensor
-    tm->offset = 6;
-    multi_perform_sketch(sketches, d-1, tm);
-    tm->offset = 1;
+    multi_perform_sketch(sketches, d-1);
 
-    VTime_break(tm, 1, "Performed Sketches");
 
     for (int ii = 0; ii < d-1; ++ii){
         sketch_qr(sketches[ii]);
     }
-    VTime_break(tm, 2, "QRed sketches");
 
     // multiply out the sketches
     for (int ii = 0; ii < mid; ++ii){
@@ -398,19 +382,15 @@ VTime* PSTT2(tensor_train* tt, MPI_tensor* ten, int mid)
         sketch* s2 = sketches[ii];
         two_sketches_to_train(s1, s2, tt->trains + ii + 1);
     }
-    VTime_break(tm, 3, "Got all but final train");
 
     // Get the middle train
     PSTT2_final_train(tt, sketches, mid);
-    VTime_break(tm, 4, "Got final train");
 
     // free
     for (int ii = 0; ii < d-1; ++ii){
         sketch_free(sketches[ii]); sketches[ii] = NULL;
     }
     free(sketches);
-    VTime_finalize(tm);
-    return tm;
 }
 
 void PSTT2_onepass_final_train(tensor_train* tt, sketch** sketches, int mid)
@@ -418,9 +398,6 @@ void PSTT2_onepass_final_train(tensor_train* tt, sketch** sketches, int mid)
     sketch* sketch_mid = sketches[mid];
     sketch* Q_right = sketches[mid+1];
     sketch** Q_left = sketches + mid - 1; //Note that we are using the pointer here to feed into sketch_to_tensor
-
-//    printf("")
-
 
     // Multiply the middle not-QRed sketch against the sketch to its right
     int p = sketch_mid->r; // this is r_left + buf
@@ -430,95 +407,37 @@ void PSTT2_onepass_final_train(tensor_train* tt, sketch** sketches, int mid)
     double* b = (double*) malloc(p*n_mid*r_right*sizeof(double)); // Named for the Ax=b solve that we will do later
     two_sketches_to_train(sketch_mid, Q_right, &b);
 
-    // Multiply Q_left by the random matrix in sketch_mid
-//    printf("\nQ_left = \n");
-//    if (sketch_mid->ten->rank == 0){
-//        printf("\n\n~~~~~~~~~~~~~~~\nQ_left\n~~~~~~~~~~~~~~~~~\n");
-//        sketch_print(*Q_left);
-//        printf("\n\n~~~~~~~~~~~~~~~\nQ_right\n~~~~~~~~~~~~~~~~~\n");
-//        sketch_print(Q_right);
-//        printf("\n\n~~~~~~~~~~~~~~~~~~~~~~~~~~\nsketch_mid\n~~~~~~~~~~~~~~~~~~~~~~~\n");
-//        sketch_print(sketch_mid);
-//    }
-//    sleep(1);
-//    if (sketch_mid->ten->rank == 1){
-//        printf("\n\n~~~~~~~~~~~~~~~\nQ_left\n~~~~~~~~~~~~~~~~~\n");
-//        sketch_print(*Q_left);
-//        printf("\n\n~~~~~~~~~~~~~~~\nQ_right\n~~~~~~~~~~~~~~~~~\n");
-//        sketch_print(Q_right);
-//        printf("\n\n~~~~~~~~~~~~~~~~~~~~~~~~~~\nsketch_mid\n~~~~~~~~~~~~~~~~~~~~~~~\n");
-//        sketch_print(sketch_mid);
-//    }
-//    sleep(1);
     MPI_tensor* ten_left = sketch_to_tensor(Q_left);
 
-
-//    MPI_tensor_print(ten_left, 1);
     sketch* sketch_left = sketch_init_with_Omega(ten_left, ten_left->d - 1, p, 0, 0, sketch_mid->Omegas); // buf = 0, is_col = 0
-//    sketch* sketch_init_with_Omega(MPI_tensor* ten, int flattening, int r, int buf, int iscol, matrix** Omegas);
-
-    if (ten_left->rank == 0){}
-//    sleep(1);
-//    if (ten_left->rank == 1){sketch_print(sketch_mid);}
-
-//    if (ten_left->rank == 0){printf("\n\n~~~~~~~~~~~~~~~~~~~~~~~~~~\nsketch_left\n~~~~~~~~~~~~~~~~~~~~~~~\n");sketch_print(sketch_left);}
-//    printf("Starting perform_sketch\n");
-    perform_sketch(sketch_left, NULL);
-//    printf("Ending perform_sketch\n");
-//    if (ten_left->rank == 0){printf("\n\nsketch_left\n\n");sketch_print(sketch_left);}
-//    sleep(1);
-//    if (ten_left->rank == 1){sketch_print(sketch_left);}
-
+    perform_sketch(sketch_left);
     double* A = (double*) calloc(p * r_left, sizeof(double));
 
 
     two_sketches_to_train(sketch_left, NULL, &A); // This reduces the matrix A
-//    printf("Here\n");
-
-
-
 
     // Solve least squares
-    matrix* A_mat = matrix_wrap(p, r_left, A);
-    matrix* b_mat = matrix_wrap(p, n_mid*r_right, b);
-    matrix* x_mat = matrix_wrap(r_left, n_mid*r_right, tt->trains[mid]);
+    matrix_tt* A_mat = matrix_tt_wrap(p, r_left, A);
+    matrix_tt* b_mat = matrix_tt_wrap(p, n_mid*r_right, b);
+    matrix_tt* x_mat = matrix_tt_wrap(r_left, n_mid*r_right, tt->trains[mid]);
 
     int head = 0;
-//    printf("ten_left->rank = %d\n", ten_left->rank);
-
-
     if (ten_left->rank == head){
-//        printf("A = \n");
-//        matrix_print(A_mat, 1);
-//        printf("b = \n");
-//        matrix_print(b_mat, 1);
-//        matrix* b_mat2 = matrix_copy(b_mat);
-        matrix_dgels(x_mat, A_mat, b_mat);
-//        printf("x = \n");
-//        matrix_print(x_mat, 1);
+        matrix_tt_dgels(x_mat, A_mat, b_mat);
     }
-
-//    if (ten_left->rank == head){
-//        printf("x = \n");
-//        matrix* c = matrix_init(A_mat->m, b_mat->n);
-//        matrix_dgemm(A_mat, x_mat, c, 1.0, 0.0);
-//        matrix_print(c, 1);
-//    }
-
 
     // Free
     sketch_free(sketch_left); sketch_left = NULL;
     MPI_tensor_free(ten_left); ten_left = NULL;
-    matrix_free(A_mat); A_mat = NULL;
-    matrix_free(b_mat); b_mat = NULL;
+    matrix_tt_free(A_mat); A_mat = NULL;
+    matrix_tt_free(b_mat); b_mat = NULL;
     free(x_mat);
 }
 
-VTime* PSTT2_onepass(tensor_train* tt, MPI_tensor* ten, int mid)
+void PSTT2_onepass(tensor_train* tt, MPI_tensor* ten, int mid)
 {
     // Number of times in PSTT2: 5
     // Number of times in multi_perform_sketch: 3
-    VTime* tm = VTime_init(1 + 5 + 3);
     mid = PSTT2_get_mid(ten, mid);
     int rank = ten->rank;
     int BUF = 2;
@@ -540,44 +459,17 @@ VTime* PSTT2_onepass(tensor_train* tt, MPI_tensor* ten, int mid)
         int iscol = 0;
         sketches[ii] = sketch_init(ten, ii, r[ii], BUF, iscol);
     }
-    VTime_break(tm, 0, "Initialized Sketches");
-
-//    if (ten->rank == 0){
-//        printf("\n\n~~~~~~~~~~~~~~~\nBefore: T_1\n~~~~~~~~~~~~~~~~~\n");
-//        sketch_print(sketches[0]);
-//    }
-//    sleep(1);
-//    if (ten->rank == 1){
-//        printf("\n\n~~~~~~~~~~~~~~~\nBefore: T_1\n~~~~~~~~~~~~~~~~~\n");
-//        sketch_print(sketches[0]);
-//    }
 
     // Sketch the tensor
-    tm->offset = 6;
-    multi_perform_sketch(sketches, d, tm);
-    tm->offset = 1;
+    multi_perform_sketch(sketches, d);
 
-    VTime_break(tm, 1, "Performed Sketches");
-
-//    if (ten->rank == 0){
-//        printf("\n\n~~~~~~~~~~~~~~~\nT_1\n~~~~~~~~~~~~~~~~~\n");
-//        sketch_print(sketches[0]);
-//    }
-//    sleep(1);
-//    if (ten->rank == 1){
-//        printf("\n\n~~~~~~~~~~~~~~~\nT_1\n~~~~~~~~~~~~~~~~~\n");
-//        sketch_print(sketches[0]);
-//    }
-//    sleep(1);
-
-
+    // Find orthogonal basis
     for (int ii = 0; ii < mid; ++ii){
         sketch_qr(sketches[ii]);
     }
     for (int ii = mid+1; ii < d; ++ii){
         sketch_qr(sketches[ii]);
     }
-    VTime_break(tm, 2, "QRed sketches");
 
     // multiply out the sketches
     for (int ii = 0; ii < mid; ++ii){
@@ -591,12 +483,9 @@ VTime* PSTT2_onepass(tensor_train* tt, MPI_tensor* ten, int mid)
         sketch* s2 = sketches[ii];
         two_sketches_to_train(s1, s2, tt->trains + ii);
     }
-    VTime_break(tm, 3, "Got all but final train");
 
     // Get the middle train
-//    printf("Starting PSTT2_onepass_final_train\n");
     PSTT2_onepass_final_train(tt, sketches, mid);
-    VTime_break(tm, 4, "Got final train");
 
     // free
     for (int ii = 0; ii < d; ++ii){
@@ -605,6 +494,4 @@ VTime* PSTT2_onepass(tensor_train* tt, MPI_tensor* ten, int mid)
         }
     }
     free(sketches);
-    VTime_finalize(tm);
-    return tm;
 }

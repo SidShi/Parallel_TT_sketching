@@ -2,9 +2,9 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <gperftools/heap-profiler.h>
 #include <cblas.h>
 #include <lapacke.h>
+#include <time.h>
 
 flattening_info* flattening_info_init(const MPI_tensor* ten, int flattening, int iscol, int t_v_block)
 {
@@ -395,21 +395,26 @@ void get_sketch_height(MPI_tensor* ten, int* owners, int flattening, int iscol, 
     flattening_info_free(fi);
 }
 
-matrix** get_sketch_Omega(const MPI_tensor* ten, int flattening, int r, int buf, int iscol)
+matrix_tt** get_sketch_Omega(const MPI_tensor* ten, int flattening, int r, int buf, int iscol)
 {
+    // Seed random numbers
+    double t = (double) time(NULL);
+    MPI_Bcast(&t, 1, MPI_DOUBLE, 0, ten->comm);
+    srand((unsigned long) t);
+
     int ii0 = iscol ? flattening : 0;
     int n_Omega = iscol ? (ten->d) - flattening : flattening;
 
-    matrix** Omegas = (matrix**) malloc(n_Omega * sizeof(matrix*));
+    matrix_tt** Omegas = (matrix_tt**) malloc(n_Omega * sizeof(matrix_tt*));
     for (int ii = 0; ii < n_Omega; ++ii){
-        Omegas[ii] = matrix_init(ten->n[ii+ii0], r+buf);
-        matrix_dlarnv(Omegas[ii]);
+        Omegas[ii] = matrix_tt_init(ten->n[ii+ii0], r+buf);
+        matrix_tt_dlarnv(Omegas[ii]);
     }
 
     return Omegas;
 }
 
-void get_KR_info(int *d_KR, int *stride_KR, matrix** KRs, MPI_tensor* ten, int flattening, int r, int buf, int iscol)
+void get_KR_info(int *d_KR, int *stride_KR, matrix_tt** KRs, MPI_tensor* ten, int flattening, int r, int buf, int iscol)
 {
     int max_m = 1000;
 
@@ -421,7 +426,7 @@ void get_KR_info(int *d_KR, int *stride_KR, matrix** KRs, MPI_tensor* ten, int f
     int ii0 = iscol ? flattening : 0;
     int n_Omega = iscol ? (ten->d) - flattening : flattening;
 
-    KRs[2] = matrix_init(1, r+buf);
+    KRs[2] = matrix_tt_init(1, r+buf);
 
     for (int ii = 0; ii < n_Omega; ++ii){
         if (assigned == 0){
@@ -437,21 +442,19 @@ void get_KR_info(int *d_KR, int *stride_KR, matrix** KRs, MPI_tensor* ten, int f
             }
             else{
                 *stride_KR = max_m / N_KR;
-                KRs[0] = matrix_init(N_KR, r+buf);
-                KRs[1] = matrix_init(*stride_KR, r+buf);
+                KRs[0] = matrix_tt_init(N_KR, r+buf);
+                KRs[1] = matrix_tt_init(*stride_KR, r+buf);
                 N_KR = N_KR * (*stride_KR);
-//                printf("N_KR = %d, stride_KR = %d\n", N_KR, *stride_KR);
-                KRs[3] = matrix_init(N_KR, r+buf);
-//                printf("Done allocating\n");
+                KRs[3] = matrix_tt_init(N_KR, r+buf);
                 assigned = 1;
             }
         }
     }
     if (assigned == 0){
         *stride_KR = 0;
-        KRs[0] = matrix_init(N_KR, r+buf);
-        KRs[1] = matrix_init(1, r+buf);
-        KRs[3] = matrix_init(N_KR, r+buf);
+        KRs[0] = matrix_tt_init(N_KR, r+buf);
+        KRs[1] = matrix_tt_init(1, r+buf);
+        KRs[3] = matrix_tt_init(N_KR, r+buf);
     }
 }
 
@@ -474,31 +477,28 @@ sketch* sketch_init(MPI_tensor* ten, int flattening, int r, int buf, int iscol)
     s->scratch = (double*) calloc(s->X_size, sizeof(double));
     s->recv_buf = (double*) calloc(recv_buf_height * (r+buf), sizeof(double));
     s->fi = flattening_info_init(ten, flattening, iscol, 0);
-    s->KRs = (matrix**) calloc(4, sizeof(matrix*));
+    s->KRs = (matrix_tt**) calloc(4, sizeof(matrix_tt*));
     get_KR_info(&(s->d_KR), &(s->stride_KR), s->KRs, ten, flattening, r, buf, iscol);
-
-//    printf("s->X_size = %ld, recv_buf size = %ld\n", s->X_size, recv_buf_height * (r+buf));
 
     return s;
 }
 
-//(const MPI_tensor* ten, int flattening, int r, int buf, int iscol)
-matrix** copy_sketch_Omega(matrix** Omegas, MPI_tensor* ten, int flattening, int r, int buf, int iscol)
+matrix_tt** copy_sketch_Omega(matrix_tt** Omegas, MPI_tensor* ten, int flattening, int r, int buf, int iscol)
 {
     int ii0 = iscol ? flattening : 0;
     int n_Omega = iscol ? (ten->d) - flattening : flattening;
 
-    matrix** Omegas_cp = (matrix**) malloc(n_Omega * sizeof(matrix*));
+    matrix_tt** Omegas_cp = (matrix_tt**) malloc(n_Omega * sizeof(matrix_tt*));
     for (int ii = 0; ii < n_Omega; ++ii){
         submatrix_update(Omegas[ii], 0, ten->n[ii+ii0], 0, r+buf);
-        Omegas_cp[ii] = matrix_copy(Omegas[ii]);
+        Omegas_cp[ii] = matrix_tt_copy(Omegas[ii]);
     }
 
     return Omegas_cp;
 }
 
 
-sketch* sketch_init_with_Omega(MPI_tensor* ten, int flattening, int r, int buf, int iscol, matrix** Omegas)
+sketch* sketch_init_with_Omega(MPI_tensor* ten, int flattening, int r, int buf, int iscol, matrix_tt** Omegas)
 {
     sketch* s = (sketch*) malloc(sizeof(sketch));
     s->ten = ten;
@@ -515,7 +515,7 @@ sketch* sketch_init_with_Omega(MPI_tensor* ten, int flattening, int r, int buf, 
     s->scratch = (double*) calloc(s->X_size, sizeof(double));
     s->recv_buf = (double*) calloc(recv_buf_height * (r+buf), sizeof(double));
     s->fi = flattening_info_init(ten, flattening, iscol, 0);
-    s->KRs = (matrix**) calloc(4, sizeof(matrix*));
+    s->KRs = (matrix_tt**) calloc(4, sizeof(matrix_tt*));
     get_KR_info(&(s->d_KR), &(s->stride_KR), s->KRs, ten, flattening, r, buf, iscol);
 
     return s;
@@ -529,10 +529,10 @@ void sketch_free(sketch* s)
     int d = ten->d;
     int n_Omega = s->iscol ? d - s->flattening : s->flattening;
     for (int ii = 0; ii < n_Omega; ++ii){
-        matrix_free(s->Omegas[ii]); s->Omegas[ii] = NULL;
+        matrix_tt_free(s->Omegas[ii]); s->Omegas[ii] = NULL;
     }
     for (int ii = 0; ii < 4; ++ii){
-        matrix_free(s->KRs[ii]); s->KRs[ii] = NULL;
+        matrix_tt_free(s->KRs[ii]); s->KRs[ii] = NULL;
     }
     free(s->KRs); s->KRs = NULL;
 
@@ -545,13 +545,6 @@ void sketch_free(sketch* s)
     free(s);
 }
 
-//sketch* sketch_copy(sketch* s)
-//{
-//    sketch* s_copy = (sketch*) malloc(sizeof(sketch));
-//    s_copy->ten = s->ten;
-//    s_copy->flattening = s->flattening;
-//}
-//
 void sketch_print(sketch* s)
 {
     printf("Printing sketch at %p\n", s);
@@ -575,24 +568,24 @@ void sketch_print(sketch* s)
 
     printf("\nX = \n");
     int r = s->r; int buf = s->buf; long X_size = s->X_size; long lda = s->lda;
-    matrix* X_mat = matrix_wrap(lda, r+buf, s->X);
-    matrix_print(X_mat, 1);
+    matrix_tt* X_mat = matrix_tt_wrap(lda, r+buf, s->X);
+    matrix_tt_print(X_mat, 1);
     free(X_mat); X_mat = NULL;
 
     printf("\nscratch = \n");
-    matrix* scratch_mat = matrix_wrap(lda, r+buf, s->scratch);
-    matrix_print(scratch_mat, 1);
+    matrix_tt* scratch_mat = matrix_tt_wrap(lda, r+buf, s->scratch);
+    matrix_tt_print(scratch_mat, 1);
     free(scratch_mat); scratch_mat = NULL;
 
     int n_Omega = s->iscol ? (s->ten)->d-s->flattening : s->flattening;
     for (int ii = 0; ii < n_Omega; ++ii){
         printf("\nOmegas[%d] = \n", ii);
-        matrix_print(s->Omegas[ii], 1);
+        matrix_tt_print(s->Omegas[ii], 1);
     }
 }
 
 // Performs C[ii + n_ii * jj,kk] = A[ii, kk] * B[jj, kk]
-void submatrix_khatri_rao_outer_product(matrix* A, matrix* B, matrix* C)
+void submatrix_khatri_rao_outer_product(matrix_tt* A, matrix_tt* B, matrix_tt* C)
 {
     for (int kk = 0; kk < A->n; ++kk){
         int A_offset = A->offset + kk*(A->lda);
@@ -607,13 +600,6 @@ void submatrix_khatri_rao_outer_product(matrix* A, matrix* B, matrix* C)
                 B->X + B_offset, 1,
                 0.0,
                 C->X + C_offset, A->m);
-
-//        for (int jj = 0; jj < B->m; ++jj){
-//            double B_jj = matrix_element(B, jj, kk);
-//            for (int ii = 0; ii < A->m; ++ii){
-//                C->X[C_offset + jj*(A->m) + ii] = B_jj * A->X[A_offset + ii];
-//            }
-//        }
     }
 }
 
@@ -627,15 +613,15 @@ void submatrix_khatri_rao_outer_product(matrix* A, matrix* B, matrix* C)
 //     KR_2 = Omegas[ii] * KR_3 and
 //     KR_4 = KR_1 * KR_2,
 // where * is the Khatri-Rao product. Finally, we multiply X_mat by KR_4 to update the sketch, and repeat.
-void subtensor_khatri_rao(sketch* s, matrix* C, flattening_info* fi, double beta, matrix* X_mat)
+void subtensor_khatri_rao(sketch* s, matrix_tt* C, flattening_info* fi, double beta, matrix_tt* X_mat)
 {
     int r = s->r + s->buf;
-    matrix** Omegas = s->Omegas;
+    matrix_tt** Omegas = s->Omegas;
 
     MPI_tensor* ten = s->ten;
     int d_KR = s->d_KR;
-    matrix* KR_1;
-    matrix* KR_4;
+    matrix_tt* KR_1;
+    matrix_tt* KR_4;
     if ((d_KR == 0) || (d_KR%2 == 1)){
         KR_1 = s->KRs[0];
         KR_4 = s->KRs[3];
@@ -668,42 +654,38 @@ void subtensor_khatri_rao(sketch* s, matrix* C, flattening_info* fi, double beta
 
 
         if ((ii == 0) && (d_KR > 0)){
-            matrix_reshape(ii1-ii0, r, KR_1);
-            matrix_copy_data(KR_1, Omegas[0]);
+            matrix_tt_reshape(ii1-ii0, r, KR_1);
+            matrix_tt_copy_data(KR_1, Omegas[0]);
             h = ii1 - ii0;
         }
         else if (ii < d_KR){ // Multiply inner matrices
-            matrix* tmp = KR_1;
+            matrix_tt* tmp = KR_1;
             KR_1 = KR_4;
             KR_4 = tmp;
 
             h = h*(ii1-ii0);
-            matrix_reshape(h, r, KR_1);
+            matrix_tt_reshape(h, r, KR_1);
             submatrix_khatri_rao_outer_product(KR_4, Omegas[ii], KR_1);
         }
     }
 //    printf("Finished loop to get KR_1\n");
 
     if (fi->iscol){
-        matrix_wrap_update(X_mat, fi->f_N, fi->s_N, get_X(ten));
+        matrix_tt_wrap_update(X_mat, fi->f_N, fi->s_N, get_X(ten));
     }
     else{
-        matrix_wrap_update(X_mat, fi->s_N, fi->f_N, get_X(ten));
+        matrix_tt_wrap_update(X_mat, fi->s_N, fi->f_N, get_X(ten));
     }
     X_mat->transpose = (fi->iscol ? 0 : 1);
 
     if (d_KR == s_d){ // If we have done everything, just multiply (the sketch is relatively small)
-//        printf("\n~~~~~~~~~\nMultiplying\n~~~~~~~~~~~\nKR_1 = \n");
-//        matrix_print(X_mat, 1);
-//        printf("\nKR_1 = \n");
-//        matrix_print(KR_1, 1);
-        matrix_dgemm(X_mat, KR_1, C, 1.0, beta);
+        matrix_tt_dgemm(X_mat, KR_1, C, 1.0, beta);
         return;
     }
 
     int stride_KR = s->stride_KR;
-    matrix* KR_2 = s->KRs[1];
-    matrix* KR_3 = s->KRs[2];
+    matrix_tt* KR_2 = s->KRs[1];
+    matrix_tt* KR_3 = s->KRs[2];
 
     int* t_kk = ten->t_kk;
     int size_KR = fi->s_t_sizes[d_KR];
@@ -711,25 +693,22 @@ void subtensor_khatri_rao(sketch* s, matrix* C, flattening_info* fi, double beta
 
     int tensor_offset = 0;
 
-//    printf("Starting multiplication loop\n");
     for (int kk = 0; kk < N_kk; ++kk) {
         to_tensor_ind(t_kk, (long) kk, fi->s_t_sizes + d_KR + 1, s_d - 1 - d_KR);
 
-//        printf("kk%d got t_kk\n", kk);
         for (int ii = d_KR + 1; ii < s_d; ++ii){
             if (ii == d_KR + 1){
                 for (int jj = 0; jj < r; ++jj){
-                    KR_3->X[jj] = matrix_element(Omegas[ii], t_kk[ii-d_KR-1], jj);
+                    KR_3->X[jj] = matrix_tt_element(Omegas[ii], t_kk[ii-d_KR-1], jj);
                 }
             }
             else{
                 for (int jj = 0; jj < r; ++jj){
-                    KR_3->X[jj] *= matrix_element(Omegas[ii], t_kk[ii-d_KR-1], jj);
+                    KR_3->X[jj] *= matrix_tt_element(Omegas[ii], t_kk[ii-d_KR-1], jj);
                 }
             }
         }
 
-//        printf("kk%d got KR_3\n", kk);
         for (int ll = 0; ll < N_ll; ++ll){
             double bb = ((kk==0) && (ll==0)) ? beta : 1.0;
             int ii0 = Omega_offset_KR + ll * stride_KR;
@@ -737,21 +716,17 @@ void subtensor_khatri_rao(sketch* s, matrix* C, flattening_info* fi, double beta
 
             submatrix_update(Omegas[d_KR], ii0, ii1, 0, r);
             if (d_KR + 1 == s_d){ // If we only need KR_1 and Omegas[ii]
-//                printf("d_KR + 1 == s_d\n");
-                matrix_reshape((KR_1->m) * (ii1-ii0), r, KR_4);
+                matrix_tt_reshape((KR_1->m) * (ii1-ii0), r, KR_4);
                 submatrix_khatri_rao_outer_product(KR_1, Omegas[d_KR], KR_4);
             }
             else if (d_KR == 0){ // If we only need Omegas[ii] and KR_3
-//                printf("d_KR == 0, Reshaping KR_4\n");
-                matrix_reshape(Omegas[d_KR]->m, r, KR_4);
+                matrix_tt_reshape(Omegas[d_KR]->m, r, KR_4);
                 submatrix_khatri_rao_outer_product(Omegas[d_KR], KR_3, KR_4);
             }
             else{ // We need everything...
-//                printf("Reshaping KR_2\n");
-                matrix_reshape(ii1-ii0, r, KR_2);
+                matrix_tt_reshape(ii1-ii0, r, KR_2);
                 submatrix_khatri_rao_outer_product(Omegas[d_KR], KR_3, KR_2);
-//                printf("Reshaping KR_4\n");
-                matrix_reshape((ii1-ii0) * (KR_1->m), r, KR_4);
+                matrix_tt_reshape((ii1-ii0) * (KR_1->m), r, KR_4);
                 submatrix_khatri_rao_outer_product(KR_1, KR_2, KR_4);
             }
 
@@ -763,12 +738,7 @@ void subtensor_khatri_rao(sketch* s, matrix* C, flattening_info* fi, double beta
                 submatrix_update(X_mat, tensor_offset, tensor_offset + KR_4->m, 0, fi->f_N);
             }
 
-//            printf("\nPerforming dgemm in submatrix_khatri_rao\n");
-//            printf("KR_4 = \n");
-//            matrix_print(KR_4, 1);
-//            printf("X_mat = \n");
-//            matrix_print(X_mat, 1);
-            matrix_dgemm(X_mat, KR_4, C, 1.0, bb);
+            matrix_tt_dgemm(X_mat, KR_4, C, 1.0, bb);
             tensor_offset = tensor_offset + KR_4->m;
         }
     }
@@ -812,7 +782,7 @@ int s_get_owner(sketch* s, int f_v_block){
     return -1;
 }
 
-void own_submatrix_update(matrix* mat, sketch* s, int f_v_block, int with_buf){
+void own_submatrix_update(matrix_tt* mat, sketch* s, int f_v_block, int with_buf){
     if (f_v_block == -1){
         return;
     }
@@ -835,18 +805,18 @@ void own_submatrix_update(matrix* mat, sketch* s, int f_v_block, int with_buf){
     flattening_info_f_update(fi, ten, f_v_block);
 
 
-    matrix_wrap_update(mat, sketch_lda, s->r + s->buf, s->X);
+    matrix_tt_wrap_update(mat, sketch_lda, s->r + s->buf, s->X);
     int r = (with_buf) ? s->r + s->buf : s->r;
     submatrix_update(mat, sketch_offset, sketch_offset + fi->f_N, 0, r);
 }
 
-matrix* own_submatrix(sketch* s, int f_v_block, int with_buf){
-    matrix* mat = (matrix*) malloc(sizeof(matrix));
+matrix_tt* own_submatrix(sketch* s, int f_v_block, int with_buf){
+    matrix_tt* mat = (matrix_tt*) malloc(sizeof(matrix_tt));
     own_submatrix_update(mat, s, f_v_block, with_buf);
     return mat;
 }
 
-void subtensor_sketch_multiply(sketch* s, flattening_info* fi, matrix** holders)
+void subtensor_sketch_multiply(sketch* s, flattening_info* fi, matrix_tt** holders)
 {
     MPI_tensor* ten = s->ten;
     int* owner_partition = s->owner_partition;
@@ -854,7 +824,7 @@ void subtensor_sketch_multiply(sketch* s, flattening_info* fi, matrix** holders)
     int world_rank = ten->rank;
 
     // Actually sketch the thing
-    matrix* sketch_mat = holders[0];
+    matrix_tt* sketch_mat = holders[0];
     double beta = 0.0;
     if (ten->current_part != -1){
         int current_color = get_owner(fi->f_v_block, owner_partition, world_size);
@@ -863,7 +833,7 @@ void subtensor_sketch_multiply(sketch* s, flattening_info* fi, matrix** holders)
             beta = 1.0;
         }
         else{
-            matrix_wrap_update(sketch_mat, fi->f_N, s->r + s->buf, s->scratch);
+            matrix_tt_wrap_update(sketch_mat, fi->f_N, s->r + s->buf, s->scratch);
             beta = 0.0;
         }
 
@@ -871,7 +841,7 @@ void subtensor_sketch_multiply(sketch* s, flattening_info* fi, matrix** holders)
     }
 }
 
-void subtensor_sketch_communicate(sketch* s, int stream_step, flattening_info* fi, matrix** holders)
+void subtensor_sketch_communicate(sketch* s, int stream_step, flattening_info* fi, matrix_tt** holders)
 {
     MPI_tensor* ten = s->ten;
     int* owner_partition = s->owner_partition;
@@ -880,7 +850,7 @@ void subtensor_sketch_communicate(sketch* s, int stream_step, flattening_info* f
     int* group_ranks = ten->group_ranks;
 
     flattening_info* fi_tmp = s->fi;
-    matrix* sketch_mat = holders[0];
+    matrix_tt* sketch_mat = holders[0];
 
     // For each flattening block
     for (int ii = 0; ii < fi->f_Nblocks; ++ii){
@@ -913,39 +883,30 @@ void subtensor_sketch_communicate(sketch* s, int stream_step, flattening_info* f
 
 
         if (world_rank == owner_ii){
-            matrix* comm_matrix = holders[1];
+            matrix_tt* comm_matrix = holders[1];
             own_submatrix_update(comm_matrix, s, ii, 1);
-            matrix* buf_mat = holders[2];
-            matrix_wrap_update(buf_mat, comm_matrix->m, comm_matrix->n, s->recv_buf);
+            matrix_tt* buf_mat = holders[2];
+            matrix_tt_wrap_update(buf_mat, comm_matrix->m, comm_matrix->n, s->recv_buf);
 
-            matrix_group_reduce(ten->comm, world_rank, comm_matrix, buf_mat, owner_ii, group_ranks, kk);
+            matrix_tt_group_reduce(ten->comm, world_rank, comm_matrix, buf_mat, owner_ii, group_ranks, kk);
         }
         else if (sketch_mat->X){
-            matrix* buf_mat = holders[2];
-            matrix_wrap_update(buf_mat, sketch_mat->m, sketch_mat->n, s->recv_buf);
-            matrix_group_reduce(ten->comm, world_rank,sketch_mat, buf_mat, owner_ii, group_ranks, kk);
+            matrix_tt* buf_mat = holders[2];
+            matrix_tt_wrap_update(buf_mat, sketch_mat->m, sketch_mat->n, s->recv_buf);
+            matrix_tt_group_reduce(ten->comm, world_rank,sketch_mat, buf_mat, owner_ii, group_ranks, kk);
         }
 
     }
 }
 
 
-void multi_perform_sketch(sketch** sketches, int n_sketch, VTime* tm)
+void multi_perform_sketch(sketch** sketches, int n_sketch)
 {
-// matrix* sketch_mat = NULL;
-// matrix* comm_matrix = own_submatrix(s, ii, 1);
-// matrix* buf_mat = matrix_wrap(comm_matrix->m, 1, s->recv_buf);
     int n_holders = 3;
-    matrix** holders = (matrix**) malloc(n_holders*n_sketch*sizeof(matrix*));
+    matrix_tt** holders = (matrix_tt**) malloc(n_holders*n_sketch*sizeof(matrix_tt*));
     for (int ii = 0; ii < n_holders*n_sketch; ++ii){
-        holders[ii] = (matrix*) calloc(1, sizeof(matrix));
+        holders[ii] = (matrix_tt*) calloc(1, sizeof(matrix_tt));
     }
-
-    double t_break = 0;
-    if (tm != NULL){
-         t_break = tm->t_break;
-    }
-    VTime_break(tm, -1, NULL);
 
     MPI_tensor* ten = sketches[0]->ten; // Tensor
     int rank = ten->rank;
@@ -960,24 +921,17 @@ void multi_perform_sketch(sketch** sketches, int n_sketch, VTime* tm)
 
     for (int ii = 0; ii < ten->n_schedule; ++ii){
         stream(ten, schedule_rank[ii]);
-//        MPI_tensor_print(ten, 1);
-        VTime_break(tm, 0, "multi_perform_sketch - time spent streaming");
         for (int jj = 0; jj < n_sketch; ++jj){
-            matrix** holders_jj = holders + jj*n_holders;
+            matrix_tt** holders_jj = holders + jj*n_holders;
             flattening_info_update(fis[jj], ten, ten->current_part);
             holders_jj[0]->X = NULL;
             subtensor_sketch_multiply(sketches[jj], fis[jj], holders_jj);
         }
-        VTime_break(tm, 1, "multi_perform_sketch - time spent multiplying");
+
         for (int jj = 0; jj < n_sketch; ++jj){
-            matrix** holders_jj = holders + jj*n_holders;
+            matrix_tt** holders_jj = holders + jj*n_holders;
             subtensor_sketch_communicate(sketches[jj], ii, fis[jj], holders_jj);
         }
-        VTime_break(tm, 2, "multi_perform_sketch - time spent communicating");
-    }
-
-    if (tm != NULL){
-        tm->t_break = t_break;
     }
 
     for (int ii = 0; ii < n_holders*n_sketch; ++ii){
@@ -1019,20 +973,20 @@ void sketch_qr(sketch* sketch)
 
     int N_rank = Ns[rank];
     int lda = sketch->lda;
-    matrix* Q_big = matrix_wrap(lda, r+buf, sketch->X);
-    matrix* Q = submatrix(Q_big, 0, N_rank, 0, r+buf);
-    matrix* Q_head = NULL;
-    matrix* R = NULL;
+    matrix_tt* Q_big = matrix_tt_wrap(lda, r+buf, sketch->X);
+    matrix_tt* Q = submatrix(Q_big, 0, N_rank, 0, r+buf);
+    matrix_tt* Q_head = NULL;
+    matrix_tt* R = NULL;
 
     if (rank == head){
-        Q_head = matrix_init(size * (r+buf), r+buf);
+        Q_head = matrix_tt_init(size * (r+buf), r+buf);
         R = submatrix(Q_head, 0, r+buf, 0, r+buf);
     }
     else{
-        R = matrix_init(r+buf, r+buf);
+        R = matrix_tt_init(r+buf, r+buf);
     }
 
-    matrix_truncated_qr(Q, R, r+buf);
+    matrix_tt_truncated_qr(Q, R, r+buf);
 
 
 
@@ -1050,7 +1004,7 @@ void sketch_qr(sketch* sketch)
 
     // Take the QR of the Rs
     if (rank == head){
-        matrix_truncated_qr(Q_head, NULL, r+buf);
+        matrix_tt_truncated_qr(Q_head, NULL, r+buf);
     }
 
     // Scatter the Q of the preceding step
@@ -1065,10 +1019,10 @@ void sketch_qr(sketch* sketch)
     }
 
     // Multiply to get the final Q
-    matrix* X_big = matrix_wrap(lda, r, sketch->scratch);
-    matrix* new_X = submatrix(X_big, 0, N_rank, 0, r);
-    matrix* Q_head_sub = submatrix(R, 0, r+buf, 0, r);
-    matrix_dgemm(Q, Q_head_sub, new_X, 1.0, 0.0);
+    matrix_tt* X_big = matrix_tt_wrap(lda, r, sketch->scratch);
+    matrix_tt* new_X = submatrix(X_big, 0, N_rank, 0, r);
+    matrix_tt* Q_head_sub = submatrix(R, 0, r+buf, 0, r);
+    matrix_tt_dgemm(Q, Q_head_sub, new_X, 1.0, 0.0);
 
     // Switch so the QR lives in X
     double* tmp = sketch->scratch;
@@ -1083,21 +1037,21 @@ void sketch_qr(sketch* sketch)
     free(Q_big);              Q_big = NULL;
     free(Q);                  Q = NULL;
     if (rank == head){
-        matrix_free(Q_head); Q_head = NULL;
+        matrix_tt_free(Q_head); Q_head = NULL;
         free(R);             R = NULL;
     }
     else{
-        matrix_free(R); R = NULL;
+        matrix_tt_free(R); R = NULL;
     }
 }
 
-void perform_sketch(sketch* s, VTime* tm)
+void perform_sketch(sketch* s)
 {
-    multi_perform_sketch(&s, 1, tm);
+    multi_perform_sketch(&s, 1);
 }
 
 // Gets the sketch block from the correct owner (stored in fi->f_v_block). Returns a matrix with the correct dimensions
-void sendrecv_sketch_block(matrix* mat, sketch* s, flattening_info* fi, int recv_rank, int with_buf)
+void sendrecv_sketch_block(matrix_tt* mat, sketch* s, flattening_info* fi, int recv_rank, int with_buf)
 {
     int f_v_block = fi->f_v_block;
 
@@ -1114,15 +1068,14 @@ void sendrecv_sketch_block(matrix* mat, sketch* s, flattening_info* fi, int recv
             own_submatrix_update(mat, s, f_v_block, with_buf);
         }
         else{
-            matrix_wrap_update(mat, fi->f_N, r, s->scratch);
-            matrix_recv(comm, mat, owner);
+            matrix_tt_wrap_update(mat, fi->f_N, r, s->scratch);
+            matrix_tt_recv(comm, mat, owner);
         }
     }
     else{
         if(rank == owner){
             own_submatrix_update(mat, s, f_v_block, with_buf);
-            matrix_send(comm, mat, recv_rank);
-//            free(s_mat_send);
+            matrix_tt_send(comm, mat, recv_rank);
         }
         mat->X = NULL;
     }
@@ -1202,10 +1155,10 @@ MPI_tensor* sketch_to_tensor(sketch** s_ptr)
     long scratch_offset = 0;
     for (int ii = 0; ii < n_schedule; ++ii){
         if (schedule_rank[ii] != -1){
-            matrix* X_submat = own_submatrix(s, schedule_rank[ii], with_buf);
+            matrix_tt* X_submat = own_submatrix(s, schedule_rank[ii], with_buf);
             subtensors[ii] = s->scratch + scratch_offset;
-            matrix* scratch_submat = matrix_wrap(X_submat->m, X_submat->n, subtensors[ii]);
-            matrix_copy_data(scratch_submat, X_submat);
+            matrix_tt* scratch_submat = matrix_tt_wrap(X_submat->m, X_submat->n, subtensors[ii]);
+            matrix_tt_copy_data(scratch_submat, X_submat);
             scratch_offset = scratch_offset + X_submat->n * X_submat->m;
             free(X_submat);
             free(scratch_submat);
@@ -1245,10 +1198,10 @@ MPI_tensor* sketch_to_tensor(sketch** s_ptr)
     // Freeing sketch things
     int n_Omega = s->iscol ? ten->d - s->flattening : s->flattening;
     for (int ii = 0; ii < n_Omega; ++ii){
-        matrix_free(s->Omegas[ii]); s->Omegas[ii] = NULL;
+        matrix_tt_free(s->Omegas[ii]); s->Omegas[ii] = NULL;
     }
     for (int ii = 0; ii < 4; ++ii){
-        matrix_free(s->KRs[ii]); s->KRs[ii] = NULL;
+        matrix_tt_free(s->KRs[ii]); s->KRs[ii] = NULL;
     }
     free(s->KRs); s->KRs = NULL;
     s->ten = NULL;

@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <gperftools/heap-profiler.h>
 
 #ifndef HEAD
 #define HEAD (int) 0
@@ -267,9 +266,6 @@ void stream(MPI_tensor* ten, int part)
 
         if (f_ten != NULL){
             int d = ten->d;
-//            int* ind1 = (int*) calloc(d, sizeof(int)); // lower corner of the subtensor
-//            int* ind2 = (int*) calloc(d, sizeof(int)); // upper corner of the subtensor
-//            int* tensor_part = (int*) calloc(d, sizeof(int)); // the block-tensor index
             int* ind1 = ten->ind1;
             int* ind2 = ten->ind2;
             int* tensor_part = ten->tensor_part;
@@ -283,10 +279,6 @@ void stream(MPI_tensor* ten, int part)
             }
 
             (*f_ten)(ten->X, ind1, ind2, ten->parameters);
-
-//            free(ind1);
-//            free(ind2);
-//            free(tensor_part);
         }
     }
     ten->current_part = part;
@@ -353,52 +345,6 @@ void MPI_tensor_print(const MPI_tensor* ten, int flattening)
     double* X = get_X(ten);
     long X_size = ten->X_size;
 
-//    MPI_Barrier(comm);
-    if (rank == HEAD){
-//        printf("rank%d The tensor has d = %d, n = [", rank, d);
-//        for (int ii = 0; ii<d-1; ++ii){
-//            printf("%d, ", n[ii]);
-//        }
-//        printf("%d]\n", n[d-1]);
-//
-//        printf("\nrank%d partitions:\n", rank);
-//        for (int ii = 0; ii < d; ++ii){
-//            int np = nps[ii];
-//            int* partition = partitions[ii];
-//            printf("rank%d nps[%d] = %d, partitions[%d] = [%d", rank, ii, np, ii, partition[0]);
-//            for (int jj = 1; jj < np+1; ++jj){
-//                printf(", %d", partition[jj]);
-//            }
-//            printf("]\n");
-//        }
-//
-//        printf("rank%d n_schedule = %d, schedule = \n", rank, n_schedule);
-//        for (int ii = 0; ii < n_schedule; ++ii){
-//            printf("rank%d [", rank);
-//            for (int jj = 0; jj < comm_size-1; ++jj){
-//                printf("%d, ", schedule[jj][ii]);
-//            }
-//            printf("%d]\n", schedule[comm_size-1][ii]);
-//        }
-//
-//        if (inverse_schedule != NULL){
-//            printf("rank%d inverse_schedule = [", rank);
-//            int Nblocks = 1;
-//            for (int ii = 0; ii < d; ++ii){
-//                Nblocks = Nblocks * nps[ii];
-//            }
-//            for (int ii = 0; ii < Nblocks-1; ++ii){
-//                printf("%d, ", inverse_schedule[ii]);
-//            }
-//            printf("%d]\n", inverse_schedule[Nblocks-1]);
-//        }
-//
-//        printf("rank%d current_part = %d, X_size = %ld\n", rank, current_part, X_size);
-//
-//        if ((flattening >= 0) && (flattening <= d)){
-//            printf("rank%d The %d-th flattening of ten->X is: \n", rank, flattening);
-//        }
-    }
 
     if ((flattening >= 0) && (flattening <= d)){
         for (int ii = 0; ii<comm_size; ++ii){
@@ -419,12 +365,8 @@ void MPI_tensor_print(const MPI_tensor* ten, int flattening)
                     }
                 }
 
-//                int part_1 = current_part % np_1;
-//                int part_2 = current_part / np_1;
-//                int n_part = (int) partition_1[part_1 + 1] - partition_1[part_1];
-//                int m_part = (int) partition_2[part_2 + 1] - partition_2[part_2];
-                matrix* A = matrix_wrap(n1, n2, get_X(ten));
-                matrix_print(A, 1);
+                matrix_tt* A = matrix_tt_wrap(n1, n2, get_X(ten));
+                matrix_tt_print(A, 1);
                 free(tensor_part); tensor_part = NULL;
                 free(A); A = NULL;
             }

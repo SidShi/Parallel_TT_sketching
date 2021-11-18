@@ -10,7 +10,6 @@
 
 void PSTT2_test(int d, const int* n, const int* r, int* nps, void (*f_ten)(double* restrict, int*, int*, const void*), void* parameters)
 {
-    printf("In PSTT2_test\n");
     // Allocate tensor
     MPI_tensor* ten = MPI_tensor_init(d, n, nps, MPI_COMM_WORLD, f_ten, parameters);
 
@@ -19,27 +18,30 @@ void PSTT2_test(int d, const int* n, const int* r, int* nps, void (*f_ten)(doubl
     int mid = -1;
 
     // Find tensor train via PSTT2
-    VTime* time = PSTT2(tt, ten, mid);
+    MPI_Barrier(ten->comm);
+    double t0 = MPI_Wtime();
+    PSTT2(tt, ten, mid);
+    double t1 = MPI_Wtime();
 
     // Get and print relative error
     double err = tt_error(tt, ten);
     if (ten->rank == 0){
-        printf("\n ERROR = %e\n", err);
+        printf("\nERROR = %e\nTime taken by 0th core = %e\n", err, t1-t0);
     }
 
-//    TT_free(tt);
-//    MPI_tensor_free(ten);
-
-    VTime_print(time);
-//    VTime_free(time);
+    TT_free(tt);
+    MPI_tensor_free(ten);
 }
 
 void SSTT_test(int d, const int* n, const int* r, int* nps, void (*f_ten)(double* restrict, int*, int*, const void*), void* parameters)
 {
     MPI_tensor* ten = MPI_tensor_init(d, n, nps, MPI_COMM_WORLD, f_ten, parameters);
     tensor_train* tt = TT_init_rank(d, n, r);
-    int mid = -1;
-    VTime* time = SSTT(tt, ten);
+
+    MPI_Barrier(ten->comm);
+    double t0 = MPI_Wtime();
+    SSTT(tt, ten);
+    double t1 = MPI_Wtime();
 
     // Re-allocate tensor, as SSTT deallocated the original tensor!
     ten = MPI_tensor_init(d, n, nps, MPI_COMM_WORLD, f_ten, parameters);
@@ -47,15 +49,11 @@ void SSTT_test(int d, const int* n, const int* r, int* nps, void (*f_ten)(double
     double err = tt_error(tt, ten);
 
     if (ten->rank == 0){
-        printf("\n ERROR = %e\n", err);
+        printf("\nERROR = %e\nTime taken by 0th core = %e\n", err, t1-t0);
     }
 
     TT_free(tt);
     MPI_tensor_free(ten);
-
-    VTime_print(time);
-    VTime_free(time);
-
 }
 
 void PSTT2_onepass_test(int d, const int* n, const int* r, int* nps, void (*f_ten)(double* restrict, int*, int*, const void*), void* parameters)
@@ -63,19 +61,20 @@ void PSTT2_onepass_test(int d, const int* n, const int* r, int* nps, void (*f_te
     MPI_tensor* ten = MPI_tensor_init(d, n, nps, MPI_COMM_WORLD, f_ten, parameters);
     tensor_train* tt = TT_init_rank(d, n, r);
     int mid = -1;
-    VTime* time = PSTT2_onepass(tt, ten, mid);
+
+    MPI_Barrier(ten->comm);
+    double t0 = MPI_Wtime();
+    PSTT2_onepass(tt, ten, mid);
+    double t1 = MPI_Wtime();
 
     double err = tt_error(tt, ten);
 
     if (ten->rank == 0){
-        printf("\n ERROR = %e\n", err);
+        printf("\nERROR = %e\nTime taken by 0th core = %e\n", err, t1-t0);
     }
 
     TT_free(tt);
     MPI_tensor_free(ten);
-
-    VTime_print(time);
-    VTime_free(time);
 }
 
 int main(int argc, char *argv[])
@@ -86,7 +85,7 @@ int main(int argc, char *argv[])
     //   1: PSTT2
     //   2: PSTT2-onepass
     //   3: SSTT
-    int test_num = 3;
+    int test_num = 1;
 
     // Evaluation function
     //   1: Arithmetic
@@ -95,8 +94,8 @@ int main(int argc, char *argv[])
     int tensortype = 2;
 
     // Input Tensor arguments
-    int d = 5;  // Dimension
-    int n0 = 20; // Sizes
+    int d = 5;   // Dimension
+    int n0 = 30; // Sizes
     int r0 = 10; // Ranks
 
     int* n = (int*) malloc(d * sizeof(int));
@@ -129,14 +128,20 @@ int main(int argc, char *argv[])
         parameters = p_hilbert_init(d, n);
     }
     else if (tensortype == 3){ // Gaussian bumps evaluation sum_{j=0}^M-1 exp(-gamma ( (x-xj)^2 + (y-yj)^2  + ... ) )
-        int M = 100;          // Number of bumps
+        int M = 10;           // Number of bumps
         double gamma = 10.0;  // sharpness of bumps
         int seed = 168234591;
         parameters = unit_random_p_gaussian_bumps_init(d, n, M, gamma, seed);
         f_ten = &f_gaussian_bumps;
     }
 
-    printf("Starting tensor decomposition, test_num=%d\n", test_num);
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+    if (rank == 0){
+        printf("Starting tensor decomposition, test_num=%d\n", test_num);
+    }
+
     // Perform the test
     if (test_num == 1){
         PSTT2_test(d, n, r, nps, f_ten, parameters);
@@ -163,8 +168,9 @@ int main(int argc, char *argv[])
     free(n);
     free(r);
     free(nps);
-
-    printf("Ending test\n");
+    if (rank == 0){
+        printf("Ending test\n");
+    }
     MPI_Finalize();
 
     return 0;

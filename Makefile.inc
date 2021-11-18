@@ -10,12 +10,12 @@ ARFLAGS=cr
 CC=mpicc
 
 # Optimization flags
-OPTFLAGS=-O3 -march=native -ffast-math -g
+OPTFLAGS=-O3 -march=native -ffast-math
 CFLAGS+=$(OPTFLAGS)
 
 # Required libraries
 LIBLAPACK=-llapacke -llapack
 LIBBLAS=-lblas
 
-LIBS=-ltcmalloc -lm -lprofiler $(LIBLAPACK) $(LIBBLAS)
+LIBS=-ltcmalloc -lm $(LIBLAPACK) $(LIBBLAS)
 

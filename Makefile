@@ -13,6 +13,7 @@ THREADS?=1
 # Run test
 .PHONY: test
 test:
+	$(MAKE)
 	$(MAKE) -C ./test/ test THREADS=$(THREADS)
 
 # Clean files
