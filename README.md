@@ -35,6 +35,6 @@ One can edit `example.c` to try three different tensors with user-defined values
 The user of this code must provide implementations of MPI, [LAPACKE](https://www.netlib.org/lapack/lapacke.html), and BLAS. These packages can be included in `Makefile.inc`. 
 
 # References
-[1] **Reference for submission**  
+[1] T. Shi, M. Ruth, and A. Townsend, _Parallel algorithms for computing the tensor-train decomposition_, submitted to SIAM J. Sci. Comput..  
 [2] I. V. Oseledets, _Tensor-train decomposition_, SIAM J. Sci. Comput., 33 (2011), pp. 2295-2317  
 [3] M. Che and Y. Wei, _Randomized algorithms for the approximations of Tucker and the tensor train decompositions_, Adv. Comput. Math., 45 (2019), pp. 395-428
